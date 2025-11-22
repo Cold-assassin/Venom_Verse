@@ -419,7 +419,7 @@ if run_button:
                         continue
             return xs, ys, zs
 
-        xs, ys, zs = parse_pdb_ca_coords(mock_pdb)
+        
 
         # static PNG fallback
         try:
@@ -469,4 +469,5 @@ if run_button:
         st.download_button("⬇ Download JSON", export_json(result), file_name=f"{species_selected}_analysis.json", mime="application/json")
         st.download_button("⬇ Download TXT Summary", export_txt(species_selected, result), file_name=f"{species_selected}_summary.txt", mime="text/plain")
         st.caption("Prototype export — not for scientific/clinical use.")
+
 
