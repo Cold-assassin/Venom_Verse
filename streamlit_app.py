@@ -402,93 +402,132 @@ if run_button:
 
     # Tab 3 — 3D + static fallback + pdb download
  with tab3:
-        st.subheader("Simulated 3D Structure (conceptual)")
-        st.info("This is a simulated visualization created from a simple geometric backbone. NOT a validated experimental structure.")
+            st.subheader("Simulated DNA-like Structure (conceptual)")
+            st.info("Conceptual double-helix visualization only — not experimental or validated.")
 
-        # Build mock PDB from sequence (make_mock_pdb should exist)
-        mock_pdb = make_mock_pdb(sequence)
+            # ---------- DNA PDB generator ----------
+            def make_mock_dna_pdb(n_bp: int = 20, rise: float = 3.4, twist_deg: float = 36.0, radius: float = 10.0):
+                """
+                Build a conceptual PDB of a DNA-like double helix with n_bp base pairs.
+                Geometric only — NOT real DNA coordinates.
+                """
+                lines = []
+                twist = math.radians(twist_deg)
+                atom_serial = 1
 
-        # --- Interactive viewer (sphere style) ---
-        # Use "sphere" style so residues appear as spheres
-        try:
-            html_view = render_3dmol_from_pdb(mock_pdb, width=900, height=560, style="sphere")
-            st.components.v1.html(html_view, height=600, scrolling=False)
-        except Exception as e:
-            # If embed fails for any reason, show a helpful message and continue to fallback
-            st.warning("Interactive viewer failed to initialize — showing static fallback below. Error: " + str(e))
+                bases = ["DA", "DT", "DG", "DC"]
 
-        # --- Parse CA coordinates for static fallback ---
-        def parse_pdb_ca_coords(pdb_text):
-            xs, ys, zs = [], [], []
-            for line in pdb_text.splitlines():
-                # Our mock PDB uses 'ATOM' lines with CA only
-                if line.startswith("ATOM") and " CA " in line:
-                    try:
-                        # PDB fixed-width: x columns 31-38, y 39-46, z 47-54 (1-based indices)
-                        x = float(line[30:38])
-                        y = float(line[38:46])
-                        z = float(line[46:54])
-                        xs.append(x); ys.append(y); zs.append(z)
-                    except Exception:
-                        continue
-            return xs, ys, zs
+                for i in range(n_bp):
+                    theta = i * twist
+                    z = i * rise
 
-        xs, ys, zs = parse_pdb_ca_coords(mock_pdb)
+                    # Strand A
+                    xA = radius * math.cos(theta)
+                    yA = radius * math.sin(theta)
 
-        # --- Static PNG fallback (always attempt) ---
-        try:
-            import matplotlib.pyplot as plt
-            from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
-            import io
+                    # Strand B (180° opposite)
+                    xB = radius * math.cos(theta + math.pi)
+                    yB = radius * math.sin(theta + math.pi)
 
-            fig = plt.figure(figsize=(6,4.5))
-            ax = fig.add_subplot(111, projection='3d')
+                    res_seq = i + 1
+                    baseA = bases[i % 4]
+                    baseB = bases[(i + 1) % 4]
 
-            if xs and ys and zs:
-                # line backbone
-                ax.plot(xs, ys, zs, linewidth=2, alpha=0.9)
-                # sphere-like markers (scatter)
-                ax.scatter(xs, ys, zs, s=80)
-                # annotate first residue (red) and last (blue) for orientation
-                ax.text(xs[0], ys[0], zs[0], "N-term", color='red', fontsize=8)
-                ax.text(xs[-1], ys[-1], zs[-1], "C-term", color='blue', fontsize=8)
-                ax.view_init(elev=20, azim=120)
-                ax.set_axis_off()
-            else:
-                ax.text(0.5, 0.5, 0.5, "No coordinates parsed", horizontalalignment='center', fontsize=12)
-                ax.set_axis_off()
+                    lineA = f"ATOM  {atom_serial:5d}  P   {baseA} A{res_seq:4d}    {xA:8.3f}{yA:8.3f}{z:8.3f}  1.00 20.00           P"
+                    atom_serial += 1
+                    lineB = f"ATOM  {atom_serial:5d}  P   {baseB} B{res_seq:4d}    {xB:8.3f}{yB:8.3f}{z:8.3f}  1.00 20.00           P"
+                    atom_serial += 1
 
-            buf = io.BytesIO()
-            plt.tight_layout()
-            fig.savefig(buf, format='png', dpi=150, bbox_inches='tight', pad_inches=0.1)
-            plt.close(fig)
-            buf.seek(0)
-            png_bytes = buf.read()
+                    lines.append(lineA)
+                    lines.append(lineB)
 
-            st.markdown("**Static conceptual rendering (fallback if interactive viewer blocked):**")
-            st.image(png_bytes)
+                lines.append("TER")
+                lines.append("END")
+                return "\n".join(lines)
 
-            # Download PNG
+            # Build conceptual DNA PDB
+            dna_pdb = make_mock_dna_pdb(n_bp=24)
+
+            # ---------- Parse coordinates ----------
+            def parse_pdb_coords(pdb_text):
+                xs, ys, zs = [], [], []
+                for line in pdb_text.splitlines():
+                    if line.startswith("ATOM"):
+                        try:
+                            x = float(line[30:38])
+                            y = float(line[38:46])
+                            z = float(line[46:54])
+                            xs.append(x); ys.append(y); zs.append(z)
+                        except:
+                            continue
+                return xs, ys, zs
+
+            xs, ys, zs = parse_pdb_coords(dna_pdb)
+
+            # ---------- STATIC PNG VISUALIZATION ----------
+            try:
+                import matplotlib.pyplot as plt
+                from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+                import io
+
+                fig = plt.figure(figsize=(7,5))
+                ax = fig.add_subplot(111, projection='3d')
+
+                if xs and ys and zs:
+                    # strand A (even indices)
+                    ax.plot(xs[0::2], ys[0::2], zs[0::2], linewidth=2, label="Strand A")
+                    ax.scatter(xs[0::2], ys[0::2], zs[0::2], s=30)
+
+                    # strand B (odd indices)
+                    ax.plot(xs[1::2], ys[1::2], zs[1::2], linewidth=2, label="Strand B")
+                    ax.scatter(xs[1::2], ys[1::2], zs[1::2], s=30)
+
+                    # Connect base pairs
+                    for i in range(0, len(xs), 2):
+                        ax.plot(
+                            [xs[i], xs[i+1]],
+                            [ys[i], ys[i+1]],
+                            [zs[i], zs[i+1]],
+                            color="gray",
+                            linewidth=1,
+                            alpha=0.6
+                        )
+
+                    ax.view_init(elev=20, azim=120)
+                    ax.set_axis_off()
+                else:
+                    ax.text(0.5, 0.5, 0.5, "No coordinates parsed", horizontalalignment='center')
+                    ax.set_axis_off()
+
+                buf = io.BytesIO()
+                plt.tight_layout()
+                fig.savefig(buf, format='png', dpi=150, bbox_inches='tight', pad_inches=0.1)
+                plt.close(fig)
+                buf.seek(0)
+                png_bytes = buf.read()
+
+                st.markdown("**Static conceptual double-helix rendering:**")
+                st.image(png_bytes)
+
+                st.download_button(
+                    "⬇ Download conceptual DNA PNG",
+                    png_bytes,
+                    file_name=f"{species_selected}_conceptual_dna.png",
+                    mime="image/png"
+                )
+            except Exception as e:
+                st.warning("Static DNA rendering failed: " + str(e))
+
+            # ---------- Show & download PDB ----------
+            with st.expander("Show conceptual DNA PDB (click to expand)"):
+                st.code(dna_pdb)
+
             st.download_button(
-                "⬇ Download conceptual PNG",
-                png_bytes,
-                file_name=f"{species_selected}_conceptual_peptide.png",
-                mime="image/png"
+                "⬇ Download conceptual DNA PDB (text)",
+                dna_pdb,
+                file_name=f"{species_selected}_conceptual_dna.pdb",
+                mime="text/plain"
             )
-        except Exception as e:
-            st.warning("Static rendering failed: " + str(e))
-
-        # --- PDB expander + download ---
-        with st.expander("Show conceptual PDB text (click to expand)"):
-            st.code(mock_pdb)
-
-        st.download_button(
-            "⬇ Download conceptual PDB (text)",
-            mock_pdb,
-            file_name=f"{species_selected}_conceptual_peptide.pdb",
-            mime="text/plain"
-        )
-
     # Tab 4 — research priority
     with tab4:
         st.subheader("Research Priority")
@@ -504,6 +543,7 @@ if run_button:
         st.download_button("⬇ Download JSON", export_json(result), file_name=f"{species_selected}_analysis.json", mime="application/json")
         st.download_button("⬇ Download TXT Summary", export_txt(species_selected, result), file_name=f"{species_selected}_summary.txt", mime="text/plain")
         st.caption("Prototype export — not for scientific/clinical use.")
+
 
 
 
