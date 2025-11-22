@@ -405,12 +405,6 @@ if run_button:
         st.subheader("Simulated 3D Structure (conceptual)")
         st.info("This is a simulated visualization created from a simple geometric backbone. NOT a validated experimental structure.")
 
-        mock_pdb = make_mock_pdb(sequence)
-
-        # interactive viewer (may be blocked)
-        html_view = render_3dmol_from_pdb(mock_pdb, width=900, height=560, style="cartoon")
-        st.components.v1.html(html_view, height=600, scrolling=False)
-
         # parse CA coords for static fallback
         def parse_pdb_ca_coords(pdb_text):
             xs, ys, zs = [], [], []
@@ -475,3 +469,4 @@ if run_button:
         st.download_button("⬇ Download JSON", export_json(result), file_name=f"{species_selected}_analysis.json", mime="application/json")
         st.download_button("⬇ Download TXT Summary", export_txt(species_selected, result), file_name=f"{species_selected}_summary.txt", mime="text/plain")
         st.caption("Prototype export — not for scientific/clinical use.")
+
