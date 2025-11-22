@@ -401,7 +401,7 @@ if run_button:
         }]))
 
     # Tab 3 — 3D + static fallback + pdb download
-        with tab3:
+ with tab3:
         st.subheader("Simulated 3D Structure (conceptual)")
         st.info("This is a simulated visualization created from a simple geometric backbone. NOT a validated experimental structure.")
 
@@ -504,6 +504,7 @@ if run_button:
         st.download_button("⬇ Download JSON", export_json(result), file_name=f"{species_selected}_analysis.json", mime="application/json")
         st.download_button("⬇ Download TXT Summary", export_txt(species_selected, result), file_name=f"{species_selected}_summary.txt", mime="text/plain")
         st.caption("Prototype export — not for scientific/clinical use.")
+
 
 
 
