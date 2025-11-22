@@ -1,9 +1,8 @@
-# app.py
-import os
 import streamlit as st
 import pandas as pd
 import json
 import random
+import os
 from pathlib import Path
 from datetime import datetime
 import math
@@ -30,9 +29,8 @@ if not GEMINI_API_KEY:
 
 # Fixed model name (your working model)
 GEMINI_MODEL_NAME = "models/gemini-2.5-flash-lite-preview-09-2025"
-
 # -----------------------------
-# Import Gemini client
+# IMPORT GENERATIVE CLIENT
 # -----------------------------
 try:
     import google.generativeai as genai
@@ -41,29 +39,83 @@ try:
 except Exception:
     GENAI_AVAILABLE = False
 
-if GENAI_AVAILABLE:
-    try:
-        configure(api_key=GEMINI_API_KEY)
-    except Exception:
-        # Some client versions may not require configure; ignore non-fatal errors
-        pass
-
 # -----------------------------
-# Streamlit page setup
+# STREAMLIT PAGE SETUP
 # -----------------------------
 st.set_page_config(page_title="VenomVerse – Antivenom Research Copilot",
                    page_icon="🐍",
                    layout="wide")
 st.title("🐍 VenomVerse – Antivenom Research Copilot")
 st.subheader("AI-assisted venom research hypotheses (prototype)")
+
 st.markdown("""
-<div style='padding:12px; background:#ffdddd; border-radius:8px; border:1px solid #cc0000'>
+<div style='padding:12px; background:#ADD8E6; border-radius:8px; border:1px solid #cc0000'>
 <b>⚠️ PROTOTYPE ONLY · NOT MEDICAL OR CLINICAL ADVICE · AI-GENERATED HYPOTHESES</b>
 </div>
 """, unsafe_allow_html=True)
 
 # -----------------------------
-# Data loading
+# SANITY CHECK KEY
+# -----------------------------
+if not GEMINI_API_KEY or GEMINI_API_KEY.startswith("<PUT_"):
+    st.sidebar.error("❌ Please edit app.py and insert your GEMINI_API_KEY.")
+    st.stop()
+
+if GENAI_AVAILABLE:
+    try:
+        configure(api_key=GEMINI_API_KEY)
+    except Exception:
+        # Non-fatal; actual calls will reveal issues
+        pass
+
+# -----------------------------
+# ACTIVITY / TRANSITION LOG HELPERS
+# -----------------------------
+# Moved above authentication so authentication events can be logged.
+if "activity_log" not in st.session_state:
+    # store as list of dicts: [{"time": "...", "user":"...", "event":"..."}]
+    st.session_state.activity_log = []
+
+def current_time_str():
+    # local server time string (YYYY-MM-DD HH:MM:SS)
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+def log_activity(event: str, user: str = None):
+    """Append an activity entry and keep max 200 entries to avoid growing state unlimited."""
+    entry = {"time": current_time_str(), "user": user or st.session_state.get("username", "Unknown"), "event": event}
+    st.session_state.activity_log.insert(0, entry)  # newest first
+    # cap log length
+    if len(st.session_state.activity_log) > 200:
+        st.session_state.activity_log = st.session_state.activity_log[:200]
+
+
+# -----------------------------
+# SIMPLE NAME AUTHENTICATION
+# -----------------------------
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.title("🔐 VenomVerse Access Portal")
+
+    username = st.text_input("Enter your name to access the portal:")
+
+    if st.button("Enter Portal"):
+        if username.strip() != "":
+            st.session_state.authenticated = True
+            st.session_state.username = username
+            # log authentication
+            log_activity("User entered portal (authentication)", user=username)
+            st.success(f"Welcome, {username}!")
+            st.rerun()
+        else:
+            st.error("Please enter your name to continue.")
+
+    st.stop()  # Prevent the main app from loading
+
+
+# -----------------------------
+# LOAD CSV DATA
 # -----------------------------
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
@@ -76,11 +128,11 @@ try:
     venom_df = load_csv(DATA_DIR / "venoms.csv")
     antivenom_df = load_csv(DATA_DIR / "antivenoms.csv")
 except FileNotFoundError as e:
-    st.error(f"Missing CSV: {e}. Place venoms.csv and antivenoms.csv inside the `data/` folder.")
+    st.error(f"Missing CSV: {e}")
     st.stop()
 
 # -----------------------------
-# Helper: parse model output
+# MODEL CALL + PARSING HELPERS
 # -----------------------------
 def _extract_json_from_text(text: str) -> str:
     first = text.find("{")
@@ -99,10 +151,10 @@ def _parse_gemini_response(resp):
         return json.dumps(resp)
     return str(resp)
 
-# -----------------------------
-# Analysis function
-# -----------------------------
 def analyze_species(species_common: str) -> dict:
+    """
+    Call the fixed Gemini model and return parsed JSON dict according to the schema.
+    """
     if not GENAI_AVAILABLE:
         raise RuntimeError("google-generativeai is not installed. Run: pip install google-generativeai")
 
@@ -149,7 +201,6 @@ Context:
 {json.dumps(context, indent=2)}
 """
 
-    # call Gemini model
     model = GenerativeModel(GEMINI_MODEL_NAME)
     try:
         response = model.generate_content(prompt, generation_config={"max_output_tokens": 800, "temperature": 0.2})
@@ -159,6 +210,7 @@ Context:
         raise RuntimeError(f"Gemini API call failed: {e}")
 
     raw_text = _parse_gemini_response(response)
+
     try:
         json_text = _extract_json_from_text(raw_text)
         parsed = json.loads(json_text)
@@ -166,6 +218,7 @@ Context:
         preview = raw_text[:800].replace("\n", " ")
         raise RuntimeError(f"JSON parse error. Model preview: {preview}") from e
 
+    # minimal validation
     required_keys = {"venom_analysis", "top_prediction", "synthetic_protein", "market_analysis", "research_abstract"}
     if not required_keys.issubset(set(parsed.keys())):
         raise RuntimeError("Model output missing required keys.")
@@ -173,69 +226,64 @@ Context:
     return parsed
 
 # -----------------------------
-# 3D / PDB helpers
+# 3D MOCK PDB GENERATOR
 # -----------------------------
 def make_mock_pdb(sequence: str) -> str:
+    """
+    Generate a simple conceptual PDB string with CA atoms along a helix/spiral
+    based on the sequence length. This is a purely conceptual placeholder
+    for visualization only.
+    """
     lines = []
-    seq = (sequence or "").strip().upper()
-    if not seq:
-        seq = "AAAAAAAAAAAA"
+    seq = sequence.strip().upper()
+    # limit length for visualization
     max_len = min(len(seq), 60)
-    a = 1.5
-    r = 2.0
+    a = 1.5  # rise per residue (Å)
+    r = 2.0  # radius of helix
+    # Use simple helix angles
     for i in range(max_len):
         aa = seq[i]
-        theta = i * (100.0 * math.pi / 180.0)
+        # helix parameters
+        theta = i * (100.0 * math.pi / 180.0)  # 100 degrees per residue approx
         x = r * math.cos(theta)
         y = r * math.sin(theta)
         z = i * a
         atom_serial = i + 1
         res_seq = i + 1
+        # Use CA atom line
+        # Format: "ATOM  {serial:5d}  CA  {resname:>3s} A{resSeq:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00 20.00           C"
         resname = aa if len(aa) == 1 else aa[0]
         line = f"ATOM  {atom_serial:5d}  CA  {resname:>3s} A{res_seq:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00 20.00           C"
         lines.append(line)
+    # end marker
     lines.append("TER")
     lines.append("END")
     return "\n".join(lines)
 
+# -----------------------------
+# 3DMOL HTML EMBED HELPER
+# -----------------------------
 def render_3dmol_from_pdb(pdb_string: str, width: int = 700, height: int = 500, style: str = "cartoon"):
+    """
+    Return HTML that embeds 3Dmol.js viewer with the given PDB string.
+    style: 'cartoon', 'stick', 'sphere' etc.
+    Uses base64 encoding to safely pass the PDB into the iframe script and
+    generates a unique element id to avoid collisions. Adds JS error handling.
+    """
+    # safe base64 encode the PDB text
     b64 = base64.b64encode(pdb_string.encode("utf-8")).decode("ascii")
     element_id = f"viewer-{uuid.uuid4().hex}"
     html_template = f"""
-    <div id="{element_id}" style="width: {width}px; height: {height}px; position: relative; background:#ffffff; border:1px solid #ddd;"></div>
+    <div id="{element_id}" style="width: {width}px; height: {height}px; position: relative; background:#ffffff;"></div>
+    <script src="https://3dmol.csb.pitt.edu/build/3Dmol-min.js"></script>
     <script>
     (function() {{
-      function loadScript(url, onload, onerror) {{
-        var s = document.createElement('script');
-        s.src = url;
-        s.async = true;
-        s.onload = onload;
-        s.onerror = onerror;
-        document.head.appendChild(s);
-      }}
-      const cdns = [
-        "https://3dmol.csb.pitt.edu/build/3Dmol-min.js",
-        "https://cdnjs.cloudflare.com/ajax/libs/3Dmol/1.8.0/3Dmol-min.js"
-      ];
-      let attempt = 0;
-      function tryLoad() {{
-        if (attempt >= cdns.length) {{
-          console.warn("3Dmol failed to load from CDNs. Interactive viewer may be blocked.");
-          const el = document.getElementById("{element_id}");
-          el.innerHTML = "<div style='padding:12px;color:#b00;'>Interactive 3D viewer failed to load. See browser console for details.</div>";
-          return;
-        }}
-        const url = cdns[attempt++];
-        loadScript(url, initViewer, tryLoad);
-      }}
-      function initViewer() {{
+        const element = document.getElementById("{element_id}");
+        element.innerHTML = "";
         try {{
-          setTimeout(function() {{
-            const el = document.getElementById("{element_id}");
-            el.innerHTML = "";
             const pdb = atob("{b64}");
             const config = {{ backgroundColor: "0xeeeeee" }};
-            const viewer = $3Dmol.createViewer(el, config);
+            const viewer = $3Dmol.createViewer(element, config);
             viewer.addModel(pdb, "pdb");
             if ("{style}" === "stick") {{
                 viewer.setStyle({{}}, {{stick:{{radius:0.2}}}});
@@ -246,22 +294,17 @@ def render_3dmol_from_pdb(pdb_string: str, width: int = 700, height: int = 500, 
             }}
             viewer.zoomTo();
             viewer.render();
-            window.addEventListener('resize', function() {{ viewer.resize(); viewer.render(); }});
-            console.info("3Dmol viewer initialized.");
-          }}, 50);
         }} catch (err) {{
-          console.error("3Dmol init error:", err);
-          tryLoad();
+            console.error("3Dmol render error:", err);
+            element.innerHTML = "<div style='color:#900;padding:10px;'>3Dmol render error: " + (err && err.message ? err.message : String(err)) + "</div>";
         }}
-      }}
-      tryLoad();
     }})();
     </script>
     """
     return html_template
 
 # -----------------------------
-# Exports
+# EXPORT HELPERS
 # -----------------------------
 def export_json(data: dict):
     return json.dumps(data, indent=2)
@@ -284,15 +327,41 @@ PROTOTYPE ONLY · NOT MEDICAL ADVICE
 """
 
 # -----------------------------
-# Sidebar & controls
+# SIDEBAR
 # -----------------------------
 st.sidebar.header("Select Species")
 species_selected = st.sidebar.selectbox("Species", venom_df["species_common"].tolist())
+
+# Log species selection change
+if st.session_state.get("last_species_selected") != species_selected:
+    st.session_state["last_species_selected"] = species_selected
+    log_activity(f"Selected species: {species_selected}")
+
 st.sidebar.info(f"Using Gemini model: **{GEMINI_MODEL_NAME}**")
 run_button = st.sidebar.button("Analyze Venom", type="primary")
 
+# Log analyze button press (this records immediate press; actual generation handled later)
+if run_button:
+    log_activity("Pressed 'Analyze Venom' button")
+
+
 # -----------------------------
-# Main app flow
+# SIDEBAR ACTIVITY LOG DISPLAY
+# -----------------------------
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🔔 Activity Log")
+if st.session_state.activity_log:
+    # show latest 10 entries
+    for e in st.session_state.activity_log[:10]:
+        user_str = f" ({e['user']})" if e.get("user") else ""
+        st.sidebar.markdown(f"- **{e['time']}**: {e['event']}{user_str}")
+else:
+    st.sidebar.info("No activity yet.")
+st.sidebar.markdown("---")
+
+
+# -----------------------------
+# MAIN APP FLOW
 # -----------------------------
 if run_button:
     with st.spinner("Generating hypothesis…"):
@@ -310,7 +379,6 @@ if run_button:
     except Exception:
         confidence = 0.0
     confidence_pct = f"{confidence*100:.1f}%"
-
     try:
         antivenom_avail = antivenom_df[
             antivenom_df["species_scientific"] == venom_df[venom_df["species_common"] == species_selected].iloc[0]["species_scientific"]
@@ -318,19 +386,21 @@ if run_button:
     except Exception:
         antivenom_avail = "Unknown"
 
-    # Metrics — improved Top Research Area wrapping
+        # Metrics — improved Top Research Area wrapping
     st.markdown("### 📊 Summary Metrics")
     c1, c2, c3, c4 = st.columns([2,1,1,1])  # make the first column wider for long text
 
-    # Top Research Area display (wrapped)
+    # Top Research Area: show a wrapped, multi-line block (not metric) so long text doesn't get cut
     with c1:
         st.markdown("**Top Research Area**")
         st.markdown(
             f"<div style='white-space:normal; word-wrap:break-word; line-height:1.2;'>{top_area}</div>",
             unsafe_allow_html=True
         )
+        # optionally show a small subtitle about confidence
         st.caption(f"Confidence (qualitative): {confidence_pct}")
 
+    # other metrics kept compact
     c2.metric("Confidence", confidence_pct)
     c3.metric("Antivenom Available", antivenom_avail)
     c4.metric("Prototype Status", "Conceptual Only")
@@ -344,48 +414,20 @@ if run_button:
         "Abstract + Export"
     ])
 
-    # Tab 1 — safe plotting
     with tab1:
         st.subheader("Hypothetical Venom Mechanisms")
         mech = result["venom_analysis"].get("key_mechanisms", [])
-        notes = result["venom_analysis"].get("notes", "")
-        if mech is None:
-            mech = []
-        mech = [str(m).strip() for m in mech if str(m).strip()]
-        if len(mech) == 0:
-            st.info("No discrete mechanisms returned by the model to plot. See notes below.")
-            st.write("**Notes:**")
-            st.write(notes or "_No additional notes provided._")
-        else:
-            # deterministic simple relevance 1-5
-            relevance = []
-            for i in range(len(mech)):
-                val = 3 + ((i * 37) % 3)
-                val = max(1, min(5, int(val)))
-                relevance.append(val)
-            df_plot = pd.DataFrame({"Mechanism": mech, "Relevance Score": relevance})
-            try:
-                import altair as alt
-                chart = (
-                    alt.Chart(df_plot)
-                    .mark_bar()
-                    .encode(
-                        x=alt.X("Mechanism:N", sort='-y', title="Mechanism"),
-                        y=alt.Y("Relevance Score:Q", scale=alt.Scale(domain=[0, 5.5]), title="Relevance (1–5)")
-                    )
-                    .properties(height=320)
-                )
-                st.altair_chart(chart, use_container_width=True)
-            except Exception:
-                st.bar_chart(df_plot.set_index("Mechanism"))
-            st.write("**Notes:**")
-            st.write(notes or "_No additional notes provided._")
+        if mech:
+            df = pd.DataFrame({"Mechanism": mech, "Relevance Score": [random.randint(1,5) for _ in mech]})
+            st.bar_chart(df.set_index("Mechanism"))
+        st.write("**Notes:**")
+        st.write(result["venom_analysis"].get("notes", ""))
 
-    # Tab 2 — peptide info
     with tab2:
         st.subheader("Hypothetical Peptide Concept (AI-generated, not validated)")
         syn = result.get("synthetic_protein", {})
         sequence = syn.get("sequence", "").strip()
+        # If model returned empty sequence, create a conceptual random peptide
         if not sequence:
             aa_choices = list("ACDEFGHIKLMNPQRSTVWY")
             sequence = "".join(random.choice(aa_choices) for _ in range(12))
@@ -400,7 +442,6 @@ if run_button:
             "Notes": syn.get("notes", "")
         }]))
 
-    # Tab 3 — 3D + static fallback + pdb download
     with tab3:
             st.subheader("Simulated DNA-like Structure (conceptual)")
             st.info("Conceptual double-helix visualization only — not experimental or validated.")
@@ -509,12 +550,14 @@ if run_button:
                 st.markdown("**Static conceptual double-helix rendering:**")
                 st.image(png_bytes)
 
-                st.download_button(
+                _download_started = st.download_button(
                     "⬇ Download conceptual DNA PNG",
                     png_bytes,
                     file_name=f"{species_selected}_conceptual_dna.png",
                     mime="image/png"
                 )
+                if _download_started:
+                    log_activity("Downloaded conceptual DNA PNG", user=st.session_state.get("username"))
             except Exception as e:
                 st.warning("Static DNA rendering failed: " + str(e))
 
@@ -522,30 +565,31 @@ if run_button:
             with st.expander("Show conceptual DNA PDB (click to expand)"):
                 st.code(dna_pdb)
 
-            st.download_button(
+            _download_started = st.download_button(
                 "⬇ Download conceptual DNA PDB (text)",
                 dna_pdb,
                 file_name=f"{species_selected}_conceptual_dna.pdb",
                 mime="text/plain"
             )
-    # Tab 4 — research priority
+            if _download_started:
+                log_activity("Downloaded conceptual DNA PDB", user=st.session_state.get("username"))
+
     with tab4:
         st.subheader("Research Priority")
         st.write(f"**Priority:** {result['market_analysis'].get('priority', 'N/A')}")
         st.write(result['market_analysis'].get('qualitative_summary', ''))
 
-    # Tab 5 — abstract + exports
     with tab5:
         st.subheader("AI-Generated Abstract")
         st.write(result.get("research_abstract", ""))
         st.markdown("---")
         st.subheader("Export")
-        st.download_button("⬇ Download JSON", export_json(result), file_name=f"{species_selected}_analysis.json", mime="application/json")
-        st.download_button("⬇ Download TXT Summary", export_txt(species_selected, result), file_name=f"{species_selected}_summary.txt", mime="text/plain")
+        _download_started = st.download_button("⬇ Download JSON", export_json(result), file_name=f"{species_selected}_analysis.json", mime="application/json")
+        if _download_started:
+            log_activity("Downloaded JSON export", user=st.session_state.get("username"))
+
+        _download_started = st.download_button("⬇ Download TXT Summary", export_txt(species_selected, result), file_name=f"{species_selected}_summary.txt", mime="text/plain")
+        if _download_started:
+            log_activity("Downloaded TXT summary", user=st.session_state.get("username"))
+
         st.caption("Prototype export — not for scientific/clinical use.")
-
-
-
-
-
-
