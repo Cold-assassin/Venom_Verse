@@ -401,16 +401,30 @@ if run_button:
         }]))
 
     # Tab 3 — 3D + static fallback + pdb download
-    with tab3:
+        with tab3:
         st.subheader("Simulated 3D Structure (conceptual)")
         st.info("This is a simulated visualization created from a simple geometric backbone. NOT a validated experimental structure.")
 
-        # parse CA coords for static fallback
+        # Build mock PDB from sequence (make_mock_pdb should exist)
+        mock_pdb = make_mock_pdb(sequence)
+
+        # --- Interactive viewer (sphere style) ---
+        # Use "sphere" style so residues appear as spheres
+        try:
+            html_view = render_3dmol_from_pdb(mock_pdb, width=900, height=560, style="sphere")
+            st.components.v1.html(html_view, height=600, scrolling=False)
+        except Exception as e:
+            # If embed fails for any reason, show a helpful message and continue to fallback
+            st.warning("Interactive viewer failed to initialize — showing static fallback below. Error: " + str(e))
+
+        # --- Parse CA coordinates for static fallback ---
         def parse_pdb_ca_coords(pdb_text):
             xs, ys, zs = [], [], []
             for line in pdb_text.splitlines():
+                # Our mock PDB uses 'ATOM' lines with CA only
                 if line.startswith("ATOM") and " CA " in line:
                     try:
+                        # PDB fixed-width: x columns 31-38, y 39-46, z 47-54 (1-based indices)
                         x = float(line[30:38])
                         y = float(line[38:46])
                         z = float(line[46:54])
@@ -419,23 +433,31 @@ if run_button:
                         continue
             return xs, ys, zs
 
-        
+        xs, ys, zs = parse_pdb_ca_coords(mock_pdb)
 
-        # static PNG fallback
+        # --- Static PNG fallback (always attempt) ---
         try:
             import matplotlib.pyplot as plt
             from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
             import io
+
             fig = plt.figure(figsize=(6,4.5))
             ax = fig.add_subplot(111, projection='3d')
+
             if xs and ys and zs:
+                # line backbone
                 ax.plot(xs, ys, zs, linewidth=2, alpha=0.9)
-                ax.scatter(xs, ys, zs, s=50)
+                # sphere-like markers (scatter)
+                ax.scatter(xs, ys, zs, s=80)
+                # annotate first residue (red) and last (blue) for orientation
+                ax.text(xs[0], ys[0], zs[0], "N-term", color='red', fontsize=8)
+                ax.text(xs[-1], ys[-1], zs[-1], "C-term", color='blue', fontsize=8)
                 ax.view_init(elev=20, azim=120)
                 ax.set_axis_off()
             else:
-                ax.text(0.5, 0.5, 0.5, "No coordinates parsed", horizontalalignment='center')
+                ax.text(0.5, 0.5, 0.5, "No coordinates parsed", horizontalalignment='center', fontsize=12)
                 ax.set_axis_off()
+
             buf = io.BytesIO()
             plt.tight_layout()
             fig.savefig(buf, format='png', dpi=150, bbox_inches='tight', pad_inches=0.1)
@@ -444,15 +466,28 @@ if run_button:
             png_bytes = buf.read()
 
             st.markdown("**Static conceptual rendering (fallback if interactive viewer blocked):**")
-            st.image(png_bytes, use_column_width=False)
-            st.download_button("⬇ Download conceptual PNG", png_bytes, file_name=f"{species_selected}_conceptual_peptide.png", mime="image/png")
-        except Exception as e:
-            st.warning("Static fallback rendering failed: " + str(e))
+            st.image(png_bytes)
 
-        # Show and download PDB
+            # Download PNG
+            st.download_button(
+                "⬇ Download conceptual PNG",
+                png_bytes,
+                file_name=f"{species_selected}_conceptual_peptide.png",
+                mime="image/png"
+            )
+        except Exception as e:
+            st.warning("Static rendering failed: " + str(e))
+
+        # --- PDB expander + download ---
         with st.expander("Show conceptual PDB text (click to expand)"):
             st.code(mock_pdb)
-        st.download_button("⬇ Download conceptual PDB (text)", mock_pdb, file_name=f"{species_selected}_conceptual_peptide.pdb", mime="text/plain")
+
+        st.download_button(
+            "⬇ Download conceptual PDB (text)",
+            mock_pdb,
+            file_name=f"{species_selected}_conceptual_peptide.pdb",
+            mime="text/plain"
+        )
 
     # Tab 4 — research priority
     with tab4:
@@ -469,5 +504,6 @@ if run_button:
         st.download_button("⬇ Download JSON", export_json(result), file_name=f"{species_selected}_analysis.json", mime="application/json")
         st.download_button("⬇ Download TXT Summary", export_txt(species_selected, result), file_name=f"{species_selected}_summary.txt", mime="text/plain")
         st.caption("Prototype export — not for scientific/clinical use.")
+
 
 
