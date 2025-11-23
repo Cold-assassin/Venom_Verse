@@ -24,14 +24,8 @@ VenomVerse is a non‑profit AI research copilot that:
 All in seconds — through a clean, accessible UI.
 
 
-🍎Our Solution
-Feature                                                  What It Does                                  Why It's Important
-🐍 Venom Analysis                                 Explains biological impact                    Faster scientific understanding
-🧠 Hypothesis Generation                         Potential therapeutic targets                        Drives new discovery
-🧪 Peptide Design                                Conceptual protein sequences                       Start points for drug R&D
-🧊 3D Structure Simulation                        Mock-PDB visualization                           Inspires structural research
-📄 JSON & TXT Export                               Re-use results in labs                            Helps real researchers
-⚠️ Ethical AI Framework                           Hypothesis-only outputs                        Safety aligned with health domain
+<img width="1114" height="223" alt="image" src="https://github.com/user-attachments/assets/f66a6a81-db60-4d59-b363-dc0d0df98223" />
+
 
 
 BUILD TO EMPOWER SCIENTISTS, NOT REPLACE THEM
@@ -65,4 +59,7 @@ Try the Live Prototype
 
 🐍 VenomVerse © 2025
 AI for Social Good — Because where you live shouldn’t decide whether a snakebite kills you.
+
+
+
 
